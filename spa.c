@@ -1,8 +1,8 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>
-#include <unistd.h>
 #include <assert.h>
+#include <unistd.h>
 
 typedef intptr_t word_t;
 
@@ -19,17 +19,9 @@ struct Block
   word_t data[1];
 };
 
-enum SearchMode {
-  FirstFit,
-  NextFit,
-  BestFit,
-  SegregatedList,
-};
-
 static struct Block *heapStart = NULL;
 static struct Block *top = NULL;
 static struct Block *searchStart = NULL;
-static enum SearchMode searchMode = FirstFit;
 
 struct Block *segregatedLists[] = {
   NULL,   //   8
@@ -64,7 +56,7 @@ static struct Block *requestFromOS(size_t size) {
 }
 
 struct Block *split(struct Block *block, size_t size) {
-  auto freePart = (struct Block *)((char *)block + allocSize(size));
+  struct Block *freePart = (struct Block *)((char *)block + allocSize(size));
   freePart->size = block->size - allocSize(size);
   freePart->used = false;
   freePart->next = block->next;
@@ -80,45 +72,34 @@ inline bool canSplit(struct Block *block, size_t size) {
 }
 
 struct Block *listAllocate(struct Block *block, size_t size) {
-  if (searchMode != SegregatedList && canSplit(block, size)) {
-    block = split(block, size);
-  }
-
   block->used = true;
   block->size = size;
 
   return block;
 }
 
-struct Block *firstFit(size_t size) {
-  auto block = heapStart;
-
-  while (block != NULL) {
-    if (block->used || block->size < size) {
-      block = block->next;
-      continue;
-    }
-
-    return listAllocate(block, size);
-  }
-
-  return NULL;
+inline int getBucket(size_t size) {
+  return size / sizeof(word_t) - 1;
 }
 
 struct Block *nextFit(size_t size) {
+  // Prime the search start.
   if (searchStart == NULL) {
     searchStart = heapStart;
   }
 
-  auto start = searchStart;
-  auto block = start;
+  struct Block *start = searchStart;
+  struct Block *block = start;
 
   while (block != NULL) {
+    // O(n) search.
     if (block->used || block->size < size) {
       block = block->next;
+      // Start from the beginning.
       if (block == NULL) {
         block = heapStart;
       }
+      // Did the full circle, and didn't find.
       if (block == start) {
         break;
       }
@@ -133,84 +114,23 @@ struct Block *nextFit(size_t size) {
   return NULL;
 }
 
-struct Block *bestFit(size_t size) {
-  auto block = heapStart;
-  struct Block *best = NULL;
+struct Block *findBlock(size_t size) {
+  int bucket = getBucket(size);
+  struct Block *originalHeapStart = heapStart;
 
-  while (block != NULL) {
-    if (block->used || block->size < size) {
-      block = block->next;
-      continue;
-    }
-    // Found a block of a smaller size, than previous best:
-    if (best == NULL || block->size < best->size) {
-      best = block;
-      block = block->next;
-    }
-  }
-
-  if (best == NULL) {
-    return NULL;
-  }
-
-  return listAllocate(best, size);
-}
-
-inline int getBucket(size_t size) {
-  return size / sizeof(word_t) - 1;
-}
-
-/**
- * Segregated fit algorithm.
- */
-struct Block *segregatedFit(size_t size) {
-  // Bucket number based on size.
-  auto bucket = getBucket(size);
-  auto originalHeapStart = heapStart;
-
-  // Init the search.
   heapStart = segregatedLists[bucket];
 
-  // Use first-fit here, but can be any:
-  auto block = firstFit(size);
+  struct Block *block = nextFit(size);
 
   heapStart = originalHeapStart;
   return block;
 }
-
-struct Block *findBlock(size_t size) {
-  switch (searchMode) {
-    case FirstFit:
-      return firstFit(size);
-    case NextFit:
-      return nextFit(size);
-    case BestFit:
-      return bestFit(size);
-    case SegregatedList:
-      return segregatedFit(size);
-  }
-}
-
-struct Block *coalesce(struct Block *block) {
-  if (!block->next->used) {
-    if (block->next == top) {
-      top = block;
-    }
-
-    block->size += block->next->size;
-    block->next = block->next->next;
-  }
-  return block;
-}
-
-bool canCoalesce(struct Block *block) { return block->next && !block->next->used; }
 
 struct Block *getHeader(word_t *data) {
   return (struct Block *)((char *)data - offsetof(struct Block, data));
 }
 
 void resetHeap() {
-  // Already reset.
   if (heapStart == NULL) {
     return;
   }
@@ -222,63 +142,49 @@ void resetHeap() {
   searchStart = NULL;
 }
 
-void init(enum SearchMode mode) {
-  searchMode = mode;
+void init() {
   resetHeap();
 }
 
-word_t *alloc(size_t size) {
+word_t *allocMem(size_t size) {
   size = align(size);
 
-  struct Block *block = findBlock(size);
-  if (block != NULL) {
-    return block->data;
+  struct Block *b = findBlock(size);
+  if (b != NULL) {
+    return b->data;
   }
 
-  auto block = requestFromOS(size);
+  struct Block *block = requestFromOS(size);
 
   block->size = size;
   block->used = true;
 
-  if (searchMode == SegregatedList) {
-    auto bucket = getBucket(size);
-    if (segregatedLists[bucket] == NULL) {
-      segregatedLists[bucket] = block;
-    }
-    if (segregatedTops[bucket] != NULL) {
-      segregatedTops[bucket]->next = block;
-    }
-    segregatedTops[bucket] = block;
-  } else {
-    if (heapStart == NULL) {
-      heapStart = block;
-    }
-    if (top != NULL) {
-      top->next = block;
-    }
-    top = block;
+  int bucket = getBucket(size);
+  if (segregatedLists[bucket] == NULL) {
+    segregatedLists[bucket] = block;
   }
+  if (segregatedTops[bucket] != NULL) {
+    segregatedTops[bucket]->next = block;
+  }
+  segregatedTops[bucket] = block;
 
   return block->data;
 }
 
-void free(word_t *data) {
-  auto block = getHeader(data);
-  if (searchMode != SegregatedList && canCoalesce(block)) {
-    block = coalesce(block);
-  }
+void freeMem(word_t *data) {
+  struct Block *block = getHeader(data);
   block->used = false;
 }
 
 void visit(void (*callback)(struct Block *)) {
-  auto block = heapStart;
+  struct Block *block = heapStart;
   while (block != NULL) {
     callback(block);
     block = block->next;
   }
 }
 
-void segregatedTraverse(void (*callback)(struct Block *)) {
+void traverse(void (*callback)(struct Block *)) {
   struct Block *originalHeapStart;
   struct Block *block;
   for (int i = 0; i < NUM_LISTS; i++) {
@@ -293,11 +199,4 @@ void segregatedTraverse(void (*callback)(struct Block *)) {
       block = block->next;
     }
   }
-}
-
-void traverse(void (*callback)(struct Block *)) {
-  if (searchMode == SegregatedList) {
-    return segregatedTraverse(callback);
-  }
-  visit(callback);
 }
