@@ -85,32 +85,17 @@ int getBucket(size_t size) {
   return res;
 }
 
-struct Block *nextFit(size_t size) {
-  // Prime the search start.
-  if (searchStart == NULL) {
-    searchStart = heapStart;
-  }
-
-  struct Block *start = searchStart;
-  struct Block *block = start;
+struct Block *firstFit(size_t size) {
+  struct Block *block = heapStart;
 
   while (block != NULL) {
     // O(n) search.
     if (block->used || block->size < size) {
       block = block->next;
-      // Start from the beginning.
-      if (block == NULL) {
-        block = heapStart;
-      }
-      // Did the full circle, and didn't find.
-      if (block == start) {
-        break;
-      }
       continue;
     }
 
     // Found the block:
-    searchStart = block;
     return listAllocate(block, size);
   }
 
@@ -123,7 +108,7 @@ struct Block *findBlock(size_t size) {
 
   heapStart = segregatedLists[bucket];
 
-  struct Block *block = nextFit(size);
+  struct Block *block = firstFit(size);
 
   heapStart = originalHeapStart;
   return block;
@@ -236,4 +221,13 @@ int main(int argc, char const *argv[]) {
   printBlocks();
   printSegregatedLists();
   freeMem(all);
+  printSegregatedLists();
+  freeMem(all7);
+  printSegregatedLists();
+  printBlocks();
+  all = allocMem(sizeof(word_t) * 1);
+  word_t *all11 = allocMem(sizeof(word_t) * 1);
+  
+  printBlocks();
+  printSegregatedLists();
 }
