@@ -2,11 +2,12 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <assert.h>
+#include <stdio.h>
 #include <unistd.h>
 
 typedef intptr_t word_t;
 
-inline size_t align(size_t x) {
+size_t align(size_t x) {
   return (x + sizeof(word_t) - 1) & ~(sizeof(word_t) - 1);
 }
 
@@ -41,7 +42,7 @@ struct Block *segregatedTops[] = {
 
 #define NUM_LISTS (sizeof(segregatedLists) / sizeof(segregatedLists[0]))
 
-inline size_t allocSize(size_t size) {
+size_t allocSize(size_t size) {
   return sizeof(struct Block) + size - sizeof(((struct Block *)0)->data);
 }
 
@@ -67,7 +68,7 @@ struct Block *split(struct Block *block, size_t size) {
   return block;
 }
 
-inline bool canSplit(struct Block *block, size_t size) {
+bool canSplit(struct Block *block, size_t size) {
   return (int)(allocSize(block->size) - size) >= (int)sizeof(struct Block);
 }
 
@@ -78,7 +79,7 @@ struct Block *listAllocate(struct Block *block, size_t size) {
   return block;
 }
 
-inline int getBucket(size_t size) {
+int getBucket(size_t size) {
   return size / sizeof(word_t) - 1;
 }
 
@@ -186,17 +187,50 @@ void visit(void (*callback)(struct Block *)) {
 
 void traverse(void (*callback)(struct Block *)) {
   struct Block *originalHeapStart;
-  struct Block *block;
   for (int i = 0; i < NUM_LISTS; i++) {
-    block = segregatedLists[i];
-
-    while (block != NULL) {
+      struct Block *block = segregatedLists[i];
       originalHeapStart = heapStart;
       heapStart = block;
-      visit(callback);
+      while (block != NULL) {
+          callback(block);
+          block = block->next;
+      }
       heapStart = originalHeapStart;
-
-      block = block->next;
     }
-  }
+}
+
+void printSegregatedLists() {
+    for (int i = 0; i < NUM_LISTS; i++) {
+        printf("List %d: ", i);
+        struct Block *block = segregatedLists[i];
+        while (block != NULL) {
+            printf("[%zu, %d] ", block->size, block->used);
+            block = block->next;
+        }
+        printf("\n");
+    }
+}
+
+void printBlock(struct Block *block) {
+    printf("[%zu, %d, %p]\n", block->size, block->used, (void*)block);
+}
+
+void printBlocks() {
+    traverse(printBlock);
+    printf("\n");
+}
+
+int main(int argc, char const *argv[]) {
+  init();
+  word_t *all = allocMem(sizeof(word_t) * 1);
+  word_t *all2 = allocMem(sizeof(word_t) * 3);
+  word_t *all3 = allocMem(sizeof(word_t) * 2);
+  word_t *all4 = allocMem(sizeof(word_t) * 5);
+  word_t *all5 = allocMem(sizeof(word_t) * 6);
+  word_t *all7 = allocMem(sizeof(word_t) * 7);
+  word_t *all8 = allocMem(sizeof(word_t) * 20);
+  word_t *all9 = allocMem(sizeof(word_t) * 4);
+  
+  printBlocks();
+  freeMem(all);
 }
