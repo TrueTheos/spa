@@ -80,7 +80,9 @@ struct Block *listAllocate(struct Block *block, size_t size) {
 }
 
 int getBucket(size_t size) {
-  return size / sizeof(word_t) - 1;
+  int res = size / sizeof(word_t) - 1;
+  if(res >= NUM_LISTS) return NUM_LISTS - 1;
+  return res;
 }
 
 struct Block *nextFit(size_t size) {
@@ -232,5 +234,6 @@ int main(int argc, char const *argv[]) {
   word_t *all9 = allocMem(sizeof(word_t) * 4);
   
   printBlocks();
+  printSegregatedLists();
   freeMem(all);
 }
